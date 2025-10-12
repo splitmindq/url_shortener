@@ -2,9 +2,12 @@ package main
 
 import (
 	"URL-Shortener/internal/config"
+	logger "URL-Shortener/internal/http-server/middleware"
 	"URL-Shortener/internal/lib/logger/sl"
 	"URL-Shortener/internal/storage/sqlite"
 	"fmt"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"log/slog"
 	"os"
 )
@@ -18,9 +21,6 @@ const (
 func main() {
 
 	cfg := config.MustLoadConfig()
-
-	//TODO DELETE
-	fmt.Println(cfg)
 
 	log := setupLogger(cfg.Env)
 	log.Info("starting url-shortener", slog.String("env", cfg.Env))
@@ -36,9 +36,13 @@ func main() {
 	}
 
 	_ = storage
-	//router
 
-	//server
+	router := chi.NewRouter()
+
+	//mw
+	router.Use(middleware.RequestID)
+	router.Use(middleware.Logger)
+	router.Use(logger.New(log))
 }
 
 func setupLogger(env string) *slog.Logger {

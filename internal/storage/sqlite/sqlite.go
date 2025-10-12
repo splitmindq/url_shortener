@@ -88,14 +88,39 @@ func (s *Storage) GetUrl(alias string) (string, error) {
 
 	var url string
 	err = stmt.QueryRow(alias).Scan(&url)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", storage.ErrUrlNotFound
-	}
+
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", storage.ErrUrlNotFound
+		}
 		return "", fmt.Errorf("%s:failed to get url %w", op, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
 	return url, nil
+}
+
+func (s *Storage) DeleteUrl(alias string) error {
+	const op = "storage.sqlite.DeleteUrl"
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("DELETE FROM URLs WHERE alias = ?")
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(alias)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	return nil
 }
