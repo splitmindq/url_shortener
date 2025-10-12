@@ -2,6 +2,8 @@ package main
 
 import (
 	"URL-Shortener/internal/config"
+	"URL-Shortener/internal/lib/logger/sl"
+	"URL-Shortener/internal/storage/sqlite"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,8 +28,14 @@ func main() {
 	if cfg.Env == envLocal || cfg.Env == envDev {
 		log.Debug("debug messages are enabled")
 	}
-	//storage
 
+	storage, err := sqlite.NewStorage(cfg.StoragePath)
+	if err != nil {
+		log.Error("error init storage", sl.Err(err))
+		os.Exit(1)
+	}
+
+	_ = storage
 	//router
 
 	//server
