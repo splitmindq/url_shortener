@@ -124,3 +124,27 @@ func (s *Storage) DeleteUrl(alias string) error {
 	}
 	return nil
 }
+
+func (s *Storage) AliasExists(alias string) (bool, error) {
+	const op = "storage.sqlite.AliasExists"
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("SELECT EXISTS (SELECT 1 FROM URLs WHERE alias = ?)")
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+	defer stmt.Close()
+	var exists bool
+	err = stmt.QueryRow(alias).Scan(&exists)
+	if err != nil {
+		return false, storage.ErrAliasExists
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+	return exists, nil
+}

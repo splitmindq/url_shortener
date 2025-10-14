@@ -15,9 +15,11 @@ import (
 
 // TODO: conf
 const aliasLength = 6
+const maxAttempts = 10
 
 type URLSaver interface {
 	SaveURL(alias string, urlToSave string) (int64, error)
+	AliasExists(alias string) (bool, error)
 }
 
 type Request struct {
@@ -33,7 +35,7 @@ type Response struct {
 func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.url.save.New"
-		log.With(
+		log = log.With(
 			slog.String("operation", op),
 		)
 		var req Request
@@ -60,18 +62,23 @@ func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 		}
 
 		alias := req.Alias
-		//todo if equal to existing
+
 		if alias == "" {
-			alias = random.NewRandomAlias(aliasLength)
+			generatedAlias, err := generateUniqueAlias(urlSaver, log)
+			if err != nil {
+				log.Error("failed to generate unique alias", sl.Err(err))
+				render.JSON(w, r, resp.Error("failed to generate unique alias"))
+				return
+			}
+			alias = generatedAlias
+			log.Info("generated unique alias", slog.String("alias", alias))
 		}
 
-		//todo
-		//alias <->  url, alias must be unique to url => except alias already exist error
 		id, err := urlSaver.SaveURL(alias, req.URL)
 		if err != nil {
 			if errors.Is(err, storage.ErrAliasExists) {
 				log.Error("Alias already exist", slog.String("url", req.URL))
-				render.JSON(w, r, resp.Error("url already exist"))
+				render.JSON(w, r, resp.Error("alias already exist"))
 				return
 			}
 			log.Error("failed to save url", sl.Err(err))
@@ -92,4 +99,26 @@ func responseOk(w http.ResponseWriter, r *http.Request, alias string) {
 		Response: resp.Ok(),
 		Alias:    alias,
 	})
+}
+
+func generateUniqueAlias(urlSaver URLSaver, log *slog.Logger) (string, error) {
+	for i := 0; i < maxAttempts; i++ {
+		alias := random.NewRandomAlias(aliasLength)
+
+		exists, err := urlSaver.AliasExists(alias)
+		if err != nil {
+			return "", err
+		}
+
+		if !exists {
+			return alias, nil
+		}
+
+		log.Debug("alias collision, generating new one",
+			slog.String("alias", alias),
+			slog.Int("attempt", i+1),
+		)
+	}
+
+	return "", errors.New("failed to generate unique alias after maximum attempts")
 }

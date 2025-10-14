@@ -2,6 +2,7 @@ package main
 
 import (
 	"URL-Shortener/internal/config"
+	del "URL-Shortener/internal/http-server/handlers/url/delete"
 	"URL-Shortener/internal/http-server/handlers/url/get"
 	"URL-Shortener/internal/http-server/handlers/url/save"
 	logger "URL-Shortener/internal/http-server/middleware"
@@ -57,7 +58,8 @@ func main() {
 
 	router.Post("/api/v1/url", save.New(log, storage))
 	router.Get("/api/v1/url/{alias}", get.New(log, storage))
-
+	router.Delete("/api/v1/url/{alias}", del.New(log, storage))
+	
 	server := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      router,
