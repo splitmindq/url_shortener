@@ -5,5 +5,5 @@ import "errors"
 var (
 	ErrUrlNotFound = errors.New("url not found")
 	ErrUrlExists   = errors.New("url already exists")
-	ErrAliesExists = errors.New("alias already exists")
+	ErrAliasExists = errors.New("alias already exists")
 )
