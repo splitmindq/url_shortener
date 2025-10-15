@@ -3,6 +3,8 @@ package delete
 import (
 	resp "URL-Shortener/internal/lib/api/response"
 	"URL-Shortener/internal/lib/logger/sl"
+	"URL-Shortener/internal/storage"
+	"errors"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"log/slog"
@@ -26,6 +28,7 @@ func New(log *slog.Logger, urlDelete URLDelete) http.HandlerFunc {
 		if alias == "" {
 			log.Error("missing alias")
 
+			render.Status(r, http.StatusBadRequest)
 			render.JSON(w, r, resp.Error("missing alias"))
 
 			return
@@ -34,9 +37,15 @@ func New(log *slog.Logger, urlDelete URLDelete) http.HandlerFunc {
 
 		err := urlDelete.DeleteUrl(alias)
 		if err != nil {
+			if errors.Is(err, storage.ErrUrlNotFound) {
+				log.Info("url not found for deletion")
+				render.Status(r, http.StatusNotFound)
+				render.JSON(w, r, resp.Error("url not found"))
+				return
+			}
 			log.Error("failed to delete url", sl.Err(err))
-
-			render.JSON(w, r, resp.Error(err.Error()))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, resp.Error("internal error"))
 
 			return
 		}

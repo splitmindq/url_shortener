@@ -12,7 +12,14 @@ type Config struct {
 	Env         string `yaml:"env" env-required:"true"`
 	StoragePath string `yaml:"storage_path" env-required:"true"`
 	HttpServer  `yaml:"http_server"`
+	App         `yaml:"app"`
 }
+
+type App struct {
+	AliasLength int `yaml:"alias_length" env-required:"true"`
+	MaxAttempts int `yaml:"max_attempts" env-required:"true"`
+}
+
 type HttpServer struct {
 	Addr        string        `yaml:"address" env-required:"true"`
 	Timeout     time.Duration `yaml:"timeout" env-default:"4s"`

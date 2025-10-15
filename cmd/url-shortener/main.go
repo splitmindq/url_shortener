@@ -4,6 +4,7 @@ import (
 	"URL-Shortener/internal/config"
 	del "URL-Shortener/internal/http-server/handlers/url/delete"
 	"URL-Shortener/internal/http-server/handlers/url/get"
+	"URL-Shortener/internal/http-server/handlers/url/redirect"
 	"URL-Shortener/internal/http-server/handlers/url/save"
 	logger "URL-Shortener/internal/http-server/middleware"
 	"URL-Shortener/internal/lib/logger/sl"
@@ -42,8 +43,7 @@ func main() {
 		log.Error("error init storage", sl.Err(err))
 		os.Exit(1)
 	}
-
-	_ = storage
+	defer storage.Close()
 
 	router := chi.NewRouter()
 
@@ -56,10 +56,13 @@ func main() {
 	//should delete if router will be changed
 	router.Use(middleware.URLFormat)
 
-	router.Post("/api/v1/url", save.New(log, storage))
-	router.Get("/api/v1/url/{alias}", get.New(log, storage))
-	router.Delete("/api/v1/url/{alias}", del.New(log, storage))
-	
+	router.Route("/api/v1", func(r chi.Router) {
+		r.Post("/url", save.New(log, storage, cfg.AliasLength, cfg.MaxAttempts))
+		r.Get("/url/{alias}", get.New(log, storage))
+		r.Delete("/url/{alias}", del.New(log, storage))
+		r.Get("/{alias}", redirect.New(log, storage))
+	})
+
 	server := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      router,

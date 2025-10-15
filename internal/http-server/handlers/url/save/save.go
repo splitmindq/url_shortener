@@ -10,18 +10,54 @@ import (
 	"github.com/go-playground/validator/v10"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
+	"sync"
 )
 
-// TODO: conf
-const aliasLength = 6
-const maxAttempts = 10
+var (
+	validate   *validator.Validate
+	initOnce   sync.Once
+	aliasRegex = regexp.MustCompile("^[a-zA-Z0-9_-]+$")
+)
+
+func initValidator() {
+	validate = validator.New()
+	validate.RegisterValidation("alphanum", func(fl validator.FieldLevel) bool {
+		return aliasRegex.MatchString(fl.Field().String())
+	})
+}
+
+func getValidator() *validator.Validate {
+	initOnce.Do(initValidator)
+	return validate
+}
+
+func isValidURL(u string) bool {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+
+	if parsed.Host == "" {
+		return false
+	}
+	return true
+}
+
+func normalizeUrl(url string) string {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "https://" + url
+	}
+	return url
+}
 
 type URLSaver interface {
 	SaveURL(alias string, urlToSave string) (int64, error)
 	AliasExists(alias string) (bool, error)
 }
-
 type Request struct {
 	Alias string `json:"alias,omitempty"`
 	URL   string `json:"url" validate:"required"`
@@ -32,41 +68,38 @@ type Response struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
+func New(log *slog.Logger, urlSaver URLSaver, aliasLength int, maxAttempts int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.url.save.New"
 		log = log.With(
 			slog.String("operation", op),
 		)
 		var req Request
-
 		err := render.DecodeJSON(r.Body, &req)
 		if err != nil {
 			log.Error("failed to parse request", sl.Err(err))
-
-			render.JSON(w, r, resp.Error("failed to decode request"))
-
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, resp.Error("invalid request"))
 			return
 		}
-		log.Info("request body decoded", slog.Any("request", req))
 
-		if err := validator.New().Struct(req); err != nil {
-			var validateErr validator.ValidationErrors
-			errors.As(err, &validateErr)
+		if err := getValidator().Struct(req); err != nil {
+			var validationErrors validator.ValidationErrors
+			errors.As(err, &validationErrors)
 
 			log.Error("failed to validate request", sl.Err(err))
-
-			render.JSON(w, r, resp.ValidationError(validateErr))
-
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, resp.ValidationError(validationErrors))
 			return
 		}
 
 		alias := req.Alias
 
 		if alias == "" {
-			generatedAlias, err := generateUniqueAlias(urlSaver, log)
+			generatedAlias, err := generateUniqueAlias(urlSaver, log, aliasLength, maxAttempts)
 			if err != nil {
 				log.Error("failed to generate unique alias", sl.Err(err))
+				render.Status(r, http.StatusInternalServerError)
 				render.JSON(w, r, resp.Error("failed to generate unique alias"))
 				return
 			}
@@ -74,15 +107,24 @@ func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 			log.Info("generated unique alias", slog.String("alias", alias))
 		}
 
-		id, err := urlSaver.SaveURL(alias, req.URL)
+		normalizedUrl := normalizeUrl(req.URL)
+		if !isValidURL(normalizedUrl) {
+			log.Error("invalid URL format", slog.String("url", normalizedUrl))
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, resp.Error("invalid URL format"))
+			return
+		}
+
+		id, err := urlSaver.SaveURL(alias, normalizedUrl)
 		if err != nil {
 			if errors.Is(err, storage.ErrAliasExists) {
 				log.Error("Alias already exist", slog.String("url", req.URL))
+				render.Status(r, http.StatusConflict)
 				render.JSON(w, r, resp.Error("alias already exist"))
 				return
 			}
 			log.Error("failed to save url", sl.Err(err))
-
+			render.Status(r, http.StatusInternalServerError)
 			render.JSON(w, r, resp.Error("failed to save url"))
 
 			return
@@ -101,7 +143,7 @@ func responseOk(w http.ResponseWriter, r *http.Request, alias string) {
 	})
 }
 
-func generateUniqueAlias(urlSaver URLSaver, log *slog.Logger) (string, error) {
+func generateUniqueAlias(urlSaver URLSaver, log *slog.Logger, aliasLength int, maxAttempts int) (string, error) {
 	for i := 0; i < maxAttempts; i++ {
 		alias := random.NewRandomAlias(aliasLength)
 
