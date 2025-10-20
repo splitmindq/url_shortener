@@ -8,7 +8,7 @@ import (
 	"URL-Shortener/internal/http-server/handlers/url/save"
 	logger "URL-Shortener/internal/http-server/middleware"
 	"URL-Shortener/internal/lib/logger/sl"
-	"URL-Shortener/internal/storage/sqlite"
+	"URL-Shortener/internal/storage/postgres"
 	"context"
 	"errors"
 	"github.com/go-chi/chi/v5"
@@ -38,12 +38,14 @@ func main() {
 		log.Debug("debug messages are enabled")
 	}
 
-	storage, err := sqlite.NewStorage(cfg.StoragePath)
+	storage, err := postgres.NewStorage(cfg.ConnString(), cfg)
 	if err != nil {
 		log.Error("error init storage", sl.Err(err))
 		os.Exit(1)
 	}
 	defer storage.Close()
+
+	go monitorPoolStats(storage, log)
 
 	router := chi.NewRouter()
 
@@ -125,4 +127,21 @@ func setupLogger(env string) *slog.Logger {
 
 	}
 	return log
+}
+
+func monitorPoolStats(storage *postgres.Storage, log *slog.Logger) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats := storage.GetPoolStats()
+		if stats != nil {
+			log.Debug("DB pool statistics",
+				slog.Int("total_connections", int(stats.TotalConns())),
+				slog.Int("idle_connections", int(stats.IdleConns())),
+				slog.Int("max_connections", int(stats.MaxConns())),
+				slog.Int("acquired_connections", int(stats.AcquiredConns())),
+			)
+		}
+	}
 }
