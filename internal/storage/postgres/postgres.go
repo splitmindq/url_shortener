@@ -14,7 +14,6 @@ import (
 
 type Storage struct {
 	pool *pgxpool.Pool
-	sql  *sql.DB
 }
 
 func NewStorage(conn string, cfg *config.Config) (*Storage, error) {
@@ -22,17 +21,17 @@ func NewStorage(conn string, cfg *config.Config) (*Storage, error) {
 
 	ctx := context.Background()
 
-	config, err := pgxpool.ParseConfig(conn)
+	poolConfig, err := pgxpool.ParseConfig(conn)
 	if err != nil {
-		return nil, fmt.Errorf("%s: parse config: %w", op, err)
+		return nil, fmt.Errorf("%s: parse poolConfig: %w", op, err)
 	}
 
-	config.MaxConns = cfg.MaxConnections
-	config.MinConns = cfg.MinConnections
-	config.MaxConnLifetime = cfg.MaxConnectionLifetime
-	config.MaxConnIdleTime = cfg.MaxConnectionIdleTime
+	poolConfig.MaxConns = cfg.MaxConnections
+	poolConfig.MinConns = cfg.MinConnections
+	poolConfig.MaxConnLifetime = cfg.MaxConnectionLifetime
+	poolConfig.MaxConnIdleTime = cfg.MaxConnectionIdleTime
 
-	pool, err := pgxpool.ConnectConfig(ctx, config)
+	pool, err := pgxpool.ConnectConfig(ctx, poolConfig)
 	if err != nil {
 		fmt.Printf("%s Error: %s\n", op, err)
 	}
@@ -69,7 +68,6 @@ func (s *Storage) SaveURL(alias, urlToSave string) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, query, alias, urlToSave).Scan(&id)
 	if err != nil {
-		// Проверка на уникальность alias
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
 			return 0, fmt.Errorf("%s: %w", op, storage.ErrAliasExists)
